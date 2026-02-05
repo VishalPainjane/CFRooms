@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { pusherServer } from '@/lib/pusher';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
           players: {
               include: { user: true }
           }
+          // Removing messages include here to fetch separately with filter
       }
     });
 
@@ -25,18 +27,33 @@ export async function GET(request: Request) {
     }
 
     let solvedProblems: string[] = [];
+    let messages: any[] = [];
+    
     if (handle) {
-        const user = room.players.find(p => p.user.handle === handle);
-        if (user) {
+        const userParticipant = room.players.find(p => p.user.handle === handle);
+        
+        if (userParticipant) {
+            // Fetch solved problems
             const statuses = await prisma.problemStatus.findMany({
                 where: {
                     roomId: room.id,
-                    userId: user.userId,
+                    userId: userParticipant.userId,
                     isSolved: true
                 },
                 select: { problemId: true }
             });
             solvedProblems = statuses.map(s => s.problemId);
+
+            // Fetch messages since they joined
+            messages = await prisma.message.findMany({
+                where: {
+                    roomId: room.id,
+                    createdAt: { gte: userParticipant.joinedAt }
+                },
+                orderBy: { createdAt: 'asc' },
+                take: 50,
+                include: { user: { select: { handle: true } } }
+            });
         }
     }
 
@@ -55,6 +72,12 @@ export async function GET(request: Request) {
           userId: p.userId,
           isHost: p.userId === room.hostId,
           score: p.score
+      })),
+      messages: messages.map(m => ({
+          id: m.id,
+          handle: m.user?.handle || 'System',
+          content: m.content,
+          createdAt: m.createdAt
       })),
       config,
       solvedProblems
@@ -88,7 +111,17 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'Only host can close room' }, { status: 403 });
         }
 
+        // Notify everyone that room is closed
+        try {
+            await pusherServer.trigger(`room-${room.code}`, 'room-closed', {
+                message: "Room closed by host"
+            });
+        } catch (e) {
+            console.error("Failed to trigger room-closed event:", e);
+        }
+
         // Delete all related data
+        await prisma.message.deleteMany({ where: { roomId: room.id } });
         await prisma.problemStatus.deleteMany({ where: { roomId: room.id } });
         await prisma.matchParticipant.deleteMany({ where: { roomId: room.id } });
         await prisma.submissionCheck.deleteMany({ where: { roomId: room.id } });
