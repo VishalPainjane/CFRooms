@@ -12,37 +12,45 @@ export async function POST(request: Request) {
 
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
-        // Verify Host
-        if (room.hostId !== user.id) {
-             return NextResponse.json({ success: false, error: "Only host can start match" });
+    // Verify Host
+    if (room.host.handle !== handle) {
+        return NextResponse.json({ error: "Only host can start match" }, { status: 403 });
+    }
+
+    // Problems (Ideally these should be fetched from CF, but using these for now as per project context)
+    const problems = [
+            { id: "4A", name: "Watermelon", url: "https://codeforces.com/problemset/problem/4/A", score: 500 },
+            { id: "71A", name: "Way Too Long Words", url: "https://codeforces.com/problemset/problem/71/A", score: 800 },
+            { id: "231A", name: "Team", url: "https://codeforces.com/problemset/problem/231/A", score: 1000 },
+            { id: "158A", name: "Next Round", url: "https://codeforces.com/problemset/problem/158/A", score: 1200 },
+            { id: "50A", name: "Domino piling", url: "https://codeforces.com/problemset/problem/50/A", score: 1500 }
+    ];
+
+    // Update Room
+    const startTime = Date.now();
+    await prisma.room.update({
+        where: { id: room.id },
+        data: {
+            status: "ONGOING",
+            config: JSON.stringify({
+                startTime,
+                duration: 2700,
+                problems
+            })
         }
+    });
 
-        // Select Problems (Mocking Lockout Set)
-        const problems = [
-             { id: "4A", name: "Watermelon", url: "https://codeforces.com/problemset/problem/4/A" },
-             { id: "71A", name: "Way Too Long Words", url: "https://codeforces.com/problemset/problem/71/A" },
-             { id: "231A", name: "Team", url: "https://codeforces.com/problemset/problem/231/A" }
-        ];
-
-        // Update Config
-        const currentConfig = room.config as any || {};
-        const newConfig = {
-            ...currentConfig,
-            startTime: Date.now(),
-            duration: currentConfig.duration || 2700, // Default 45 mins
+    // Notify via Pusher
+    try {
+        await pusherServer.trigger(`room-${roomCode.toUpperCase()}`, 'match-started', {
+            startTime,
             problems
-        };
-
-        // Update Room
-        await prisma.room.update({
-            where: { id: room.id },
-            data: {
-                status: "ONGOING",
-                config: newConfig
-            }
         });
+    } catch (e) {
+        console.error("Pusher error:", e);
+    }
 
-    return NextResponse.json({ success: true, problems });
+    return NextResponse.json({ success: true, problems, startTime });
 
   } catch (error) {
     console.error(error);

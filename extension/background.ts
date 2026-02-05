@@ -1,20 +1,18 @@
 export {}
 
-// Store pending submissions
-let pendingSubmissions: Record<string, { problemId: string }> = {};
+// Track reported requests to avoid duplicates
+const reportedRequests = new Set<string>();
 
 // Handle messages from Content Script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "API_REQUEST") {
-    const { endpoint, method, body } = message;
-    
     const fetchOptions: RequestInit = {
-      method: method || "GET",
+      method: message.method || "GET",
       headers: { "Content-Type": "application/json" }
     };
 
-    if (method !== "GET" && body) {
-        fetchOptions.body = JSON.stringify(body);
+    if (message.method !== "GET" && message.body) {
+        fetchOptions.body = JSON.stringify(message.body);
     }
 
     fetch(message.url, fetchOptions)
@@ -29,70 +27,80 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// INSTANT SUBMISSION DETECTION
 chrome.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    if (details.method === "POST" && details.url.includes("/data/submitSource")) {
+  async (details) => {
+    if (details.method === "POST") {
+        let contestId, problemIndex, sourceCode;
+
         if (details.requestBody && details.requestBody.formData) {
-            const contestId = details.requestBody.formData.contestId?.[0];
-            const problemIndex = details.requestBody.formData.submittedProblemIndex?.[0];
+            const fd = details.requestBody.formData;
             
-            if (contestId && problemIndex) {
-                console.log(`[CFRooms] Detected submission for ${contestId}${problemIndex}`);
-                pendingSubmissions[details.requestId] = {
-                    problemId: `${contestId}${problemIndex}`
-                };
+            // Try different field names
+            contestId = fd.contestId?.[0];
+            problemIndex = fd.submittedProblemIndex?.[0] || fd.problemIndex?.[0];
+            sourceCode = fd.source?.[0] || fd.sourceCode?.[0];
+
+            // If contestId is missing in body, try to extract from URL
+            // e.g. https://codeforces.com/contest/1234/submit
+            if (!contestId) {
+                const match = details.url.match(/\/contest\/(\d+)\/submit/);
+                if (match) contestId = match[1];
+            }
+            
+            if (contestId && problemIndex && !reportedRequests.has(details.requestId)) {
+                reportedRequests.add(details.requestId);
+                const problemId = `${contestId}${problemIndex}`;
+                console.log(`[Background] Instant Detection: ${problemId}`);
+
+                try {
+                    const storage = await chrome.storage.local.get(['cfr_handle', 'cfr_room_id', 'cfr_user_id']);
+                    const { cfr_handle, cfr_room_id, cfr_user_id } = storage;
+
+                    if (cfr_handle && cfr_room_id) {
+                         const apiUrl = process.env.PLASMO_PUBLIC_API_URL || "http://localhost:3000"; 
+                         fetch(`${apiUrl}/api/check-submission`, {
+                             method: "POST",
+                             headers: { "Content-Type": "application/json" },
+                             body: JSON.stringify({
+                                 handle: cfr_handle,
+                                 problemId: problemId,
+                                 roomId: cfr_room_id,
+                                 userId: cfr_user_id,
+                                 sourceCode: sourceCode
+                             })
+                         }).then(res => {
+                             if (!res.ok) {
+                                 res.json().then(data => {
+                                     if (res.status === 404 || (res.status === 400 && data.error === "Match not started")) {
+                                         chrome.storage.local.remove(['cfr_room_code', 'cfr_room_id']);
+                                     }
+                                 });
+                             }
+                         }).catch(console.error);
+                    }
+                } catch (e) {
+                     console.error("[Background] Failed to report instant submission:", e);
+                }
+                
+                // Cleanup after a while
+                setTimeout(() => reportedRequests.delete(details.requestId), 60000);
             }
         }
     }
   },
-  { urls: ["https://codeforces.com/data/submitSource*"] },
+  { urls: ["https://codeforces.com/*/submit*", "https://codeforces.com/data/submitSource*"] },
   ["requestBody"]
 );
 
 chrome.webRequest.onCompleted.addListener(
   async (details) => {
-    if (pendingSubmissions[details.requestId]) {
-        const data = pendingSubmissions[details.requestId];
-        delete pendingSubmissions[details.requestId];
-        
-        console.log(`[Background] Submission detected for: ${data.problemId}`);
-
-        try {
-            // Get context from storage (Async in MV3)
-            const storage = await chrome.storage.local.get(['cfr_handle', 'cfr_room_id', 'cfr_user_id']);
-            const { cfr_handle, cfr_room_id, cfr_user_id } = storage;
-
-            if (cfr_handle && cfr_room_id) {
-                 const apiUrl = process.env.PLASMO_PUBLIC_API_URL || "http://localhost:3000"; 
-                 
-                 console.log(`[Background] Reporting to: ${apiUrl}/api/check-submission`);
-                 
-                 await fetch(`${apiUrl}/api/check-submission`, {
-                     method: "POST",
-                     headers: { "Content-Type": "application/json" },
-                     body: JSON.stringify({
-                         handle: cfr_handle,
-                         problemId: data.problemId,
-                         roomId: cfr_room_id,
-                         userId: cfr_user_id
-                     })
-                 });
-                 console.log("[Background] Reported submission successfully.");
-            } else {
-                console.log("[Background] No active room found in storage, ignoring submission.");
-            }
-        } catch (e) {
-             console.error("[Background] Failed to report submission:", e);
-        }
-
-        // Notify Content Script (Optional, for UI feedback if still alive)
-        if (details.tabId !== -1) {
-             chrome.tabs.sendMessage(details.tabId, {
-                action: "SUBMISSION_DETECTED",
-                problemId: data.problemId
-            }).catch(() => {}); // Ignore error if tab is reloading
-        }
+    if ((details.url.includes("/submit") || details.url.includes("/submitSource")) && details.method === "POST" && details.tabId !== -1) {
+         // Notify content script that submission started
+         chrome.tabs.sendMessage(details.tabId, {
+            action: "SUBMISSION_STARTED"
+        }).catch(() => {});
     }
   },
-  { urls: ["https://codeforces.com/data/submitSource*"] }
+  { urls: ["https://codeforces.com/*/submit*", "https://codeforces.com/data/submitSource*"] }
 );
