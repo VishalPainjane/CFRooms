@@ -199,5 +199,41 @@ async function processQueue() {
   }
 }
 
+async function cleanupRooms() {
+    try {
+        const threshold = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
+        
+        // Find stale rooms
+        const staleRooms = await prisma.room.findMany({
+            where: {
+                updatedAt: { lt: threshold }
+            },
+            include: {
+                _count: {
+                    select: { players: true }
+                }
+            }
+        });
+
+        for (const room of staleRooms) {
+            if (room._count.players === 0) {
+                console.log(`[Worker] Cleaning up empty room ${room.code} (ID: ${room.id})...`);
+                
+                // Transactional delete ideally, or sequential
+                await prisma.problemStatus.deleteMany({ where: { roomId: room.id } });
+                await prisma.message.deleteMany({ where: { roomId: room.id } });
+                await prisma.matchParticipant.deleteMany({ where: { roomId: room.id } }); // Should be 0, but safe check
+                await prisma.submissionCheck.deleteMany({ where: { roomId: room.id } });
+                await prisma.room.delete({ where: { id: room.id } });
+                
+                console.log(`[Worker] Room ${room.code} deleted.`);
+            }
+        }
+    } catch (e) {
+        console.error("[Worker] Cleanup error:", e);
+    }
+}
+
 console.log("Worker started (DB Polling Mode)...");
-setInterval(processQueue, 3000);
+setInterval(processQueue, 1000);
+setInterval(cleanupRooms, 60000);

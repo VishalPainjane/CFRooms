@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
     // Remove from participants
     try {
-        await prisma.matchParticipant.delete({
+        const participant = await prisma.matchParticipant.findUnique({
             where: {
                 roomId_userId: {
                     roomId: room.id,
@@ -37,8 +37,21 @@ export async function POST(request: Request) {
                 }
             }
         });
+
+        if (participant) {
+            
+            // Manually delete dependencies to ensure success even if Cascade Schema update didn't apply to runtime
+            await prisma.problemStatus.deleteMany({
+                where: { participantId: participant.id }
+            });
+
+            await prisma.matchParticipant.delete({
+                where: { id: participant.id }
+            });
+        }
     } catch (e) {
-        // Ignore if already deleted
+        console.error("Error removing participant:", e);
+        return NextResponse.json({ error: 'Failed to remove participant' }, { status: 500 });
     }
 
     // Broadcast leave message
@@ -51,18 +64,19 @@ export async function POST(request: Request) {
             }
         });
 
-        await pusherServer.trigger(`room-${room.code}`, 'new-message', {
-            id: systemMsg.id,
-            handle: user.handle,
-            content: systemMsg.content,
-            createdAt: systemMsg.createdAt
-        });
-
-        // Trigger player list update
-        await pusherServer.trigger(`room-${room.code}`, 'player-left', {
-            handle: user.handle,
-            userId: user.id
-        });
+        // Parallelize Pusher notifications
+        await Promise.all([
+            pusherServer.trigger(`room-${room.code}`, 'new-message', {
+                id: systemMsg.id,
+                handle: user.handle,
+                content: systemMsg.content,
+                createdAt: systemMsg.createdAt
+            }),
+            pusherServer.trigger(`room-${room.code}`, 'player-left', {
+                handle: user.handle,
+                userId: user.id
+            })
+        ]);
 
     } catch (e) {
         console.error("Error broadcasting leave:", e);

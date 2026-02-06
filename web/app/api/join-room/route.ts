@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     });
 
     // Check if user is already in the room
-    const existingParticipant = await prisma.matchParticipant.findUnique({
+    let participant = await prisma.matchParticipant.findUnique({
         where: {
             roomId_userId: {
                 roomId: room.id,
@@ -37,67 +37,88 @@ export async function POST(request: Request) {
         }
     });
 
-    // Check if join message exists (to fix missing message issue)
-    const existingJoinMessage = await prisma.message.findFirst({
-        where: {
-            roomId: room.id,
-            userId: user.id,
-            content: { contains: 'joined the room' }
-        }
-    });
+    let isFreshJoin = false;
+    let joinedAt = participant?.joinedAt || new Date();
+    
+    // Array to hold background promises (Pusher) so we can await them in parallel
+    const backgroundTasks: Promise<any>[] = [];
 
-    let joinedAt = existingParticipant?.joinedAt || new Date();
-
-    // If not in room OR message missing (partial state), try to fix
-    if (!existingParticipant || !existingJoinMessage) {
-        try {
-            // 1. Ensure Participant
-            if (!existingParticipant) {
-                const p = await prisma.matchParticipant.create({
-                    data: {
-                        roomId: room.id,
-                        userId: user.id,
-                        isReady: false
-                    }
-                });
-                joinedAt = p.joinedAt;
-                
-                // Notify player joined (only if they were actually new)
-                await pusherServer.trigger(`room-${room.code}`, 'player-joined', {
+    try {
+        // 1. Ensure Participant Exists
+        if (!participant) {
+            participant = await prisma.matchParticipant.create({
+                data: {
+                    roomId: room.id,
+                    userId: user.id,
+                    isReady: false
+                }
+            });
+            joinedAt = participant.joinedAt;
+            isFreshJoin = true;
+            
+            // Notify player joined (Non-blocking)
+            backgroundTasks.push(
+                pusherServer.trigger(`room-${room.code}`, 'player-joined', {
                     handle: user.handle,
                     userId: user.id
-                });
-            }
+                }).catch(e => console.error("Pusher error (player-joined):", e))
+            );
+        }
 
-            // 2. Ensure Join Message
-            if (!existingJoinMessage) {
-                            const systemMsg = await prisma.message.create({
-                                data: {
-                                    roomId: room.id,
-                                    userId: user.id,
-                                    content: `joined the room`
-                                }
-                            });
-                await pusherServer.trigger(`room-${room.code}`, 'new-message', {
+        // 2. Ensure Join Message
+        let shouldSendMessage = false;
+
+        if (isFreshJoin) {
+            shouldSendMessage = true;
+        } else {
+            const sessionMessage = await prisma.message.findFirst({
+                where: {
+                    roomId: room.id,
+                    userId: user.id,
+                    content: { contains: 'joined the room' },
+                    createdAt: { gte: joinedAt } 
+                }
+            });
+            if (!sessionMessage) {
+                shouldSendMessage = true;
+            }
+        }
+
+        if (shouldSendMessage) {
+            const systemMsg = await prisma.message.create({
+                data: {
+                    roomId: room.id,
+                    userId: user.id,
+                    content: `joined the room`
+                }
+            });
+            
+            // Notify new message (Non-blocking)
+            backgroundTasks.push(
+                pusherServer.trigger(`room-${room.code}`, 'new-message', {
                     id: systemMsg.id,
                     handle: user.handle,
                     content: systemMsg.content,
                     createdAt: systemMsg.createdAt
-                });
-            }
-        } catch (error) {
-            console.error("Join process partial failure:", error);
-            // Ignore P2002 or notification failures, allow user to proceed
+                }).catch(e => console.error("Pusher error (new-message):", e))
+            );
         }
+
+    } catch (error) {
+        console.error("Join process partial failure:", error);
     }
 
     // Fetch messages ONLY from after they joined
+    // This DB call runs concurrently with the Pusher calls started above
     let messages = [];
     try {
+        // Add a small buffer (2s) to ensure we capture the "joined" message created at the same instant
+        const fetchFrom = new Date(joinedAt.getTime() - 2000);
+        
         messages = await prisma.message.findMany({
             where: { 
                 roomId: room.id,
-                createdAt: { gte: joinedAt } // Only history since join
+                createdAt: { gte: fetchFrom } // Only history since join (with buffer)
             },
             include: { user: { select: { handle: true } } },
             orderBy: { createdAt: 'asc' },
@@ -114,6 +135,9 @@ export async function POST(request: Request) {
     } catch (e) {
         console.error("Error parsing config:", e);
     }
+
+    // Ensure all background tasks complete before returning response
+    await Promise.all(backgroundTasks);
 
     return NextResponse.json({ 
         success: true,

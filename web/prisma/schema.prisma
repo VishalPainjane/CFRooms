@@ -63,7 +63,7 @@ model ProblemStatus {
   solvedAt      DateTime?
 
   participantId String
-  participant   MatchParticipant @relation(fields: [participantId], references: [id])
+  participant   MatchParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId, problemId])
 }
