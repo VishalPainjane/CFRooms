@@ -110,7 +110,7 @@ export async function POST(request: Request) {
 
     // Fetch messages ONLY from after they joined
     // This DB call runs concurrently with the Pusher calls started above
-    let messages = [];
+    let messages: any[] = [];
     try {
         // Add a small buffer (2s) to ensure we capture the "joined" message created at the same instant
         const fetchFrom = new Date(joinedAt.getTime() - 2000);
