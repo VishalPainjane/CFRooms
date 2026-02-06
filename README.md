@@ -31,7 +31,7 @@ npm run dev
 In a separate terminal:
 ```bash
 cd web
-ts-node workers/submission-worker.ts
+npx tsx workers/submission-worker.ts
 ```
 *Note: Requires `REDIS_URL` in environment.*
 
