@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { pusherServer } from '@/lib/pusher';
+import { processChecks } from '@/lib/submission-processor';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -12,19 +13,31 @@ export async function GET(request: Request) {
   }
 
   try {
+    // 1. Get Room ID efficiently
+    const roomRef = await prisma.room.findUnique({
+        where: { code: code.toUpperCase() },
+        select: { id: true }
+    });
+
+    if (!roomRef) {
+      return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+    }
+
+    // 2. Process any pending submissions (Serverless Worker Pattern)
+    // This ensures that polling clients drive the submission checking logic
+    await processChecks(roomRef.id);
+
+    // 3. Fetch Full Room Data (Post-Processing)
     const room = await prisma.room.findUnique({
       where: { code: code.toUpperCase() },
       include: { 
           players: {
               include: { user: true }
           }
-          // Removing messages include here to fetch separately with filter
       }
     });
 
-    if (!room) {
-      return NextResponse.json({ error: 'Room not found' }, { status: 404 });
-    }
+    if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 }); // Should not happen
 
     let solvedProblems: string[] = [];
     let messages: any[] = [];
