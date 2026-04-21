@@ -1,54 +1,70 @@
-# CFRooms
+# CFRooms 🚀
 
-The multiplayer layer for Codeforces.
+<div align="center">
+  <img src="https://raw.githubusercontent.com/VishalPainjane/CFRooms/main/web/public/icon.svg" width="128" />
+  <h3>The multiplayer layer for Codeforces.</h3>
+  <p>Practice together, compete in real-time, and level up your competitive programming journey.</p>
+</div>
 
-## Project Structure
+---
 
-- `web/`: Next.js application (Backend API + Hub).
-- `extension/`: Plasmo Chrome Extension.
+## 🌟 Features
 
-## Setup Instructions
+- **Real-Time Collaboration**: Complete Codeforces problems together with your friends.
+- **Live Scoreboard**: Track everyone's progress, time, and submissions live.
+- **In-Room Chat**: Discuss approaches and solutions directly synced to the room.
+- **Customizable Sessions**: Filter problems by rating, tags, and topics.
+- **Privacy First**: No passwords required. We don't store your code or chat logs long-term.
+
+## 🏗️ Architecture Architecture
+
+CFRooms contains two main components:
+1. **Web App (Next.js)**: Holds the backend API, Pusher WebSocket auth, and the central Redis/BullMQ task queues.
+2. **Browser Extension (Plasmo)**: A lightweight MV3 Chrome extension that injects directly into Codeforces.com pages for seamless integration.
+
+For a deeper dive into the system design, check out our [Architecture Documentation](./docs/ARCHITECTURE.md).
+
+## 🚀 Quick Setup
 
 ### 1. Prerequisites
-- Node.js & npm
-- PostgreSQL Database (e.g., Neon)
-- Redis (e.g., Upstash)
-- Pusher Account
+- Node.js (v18+)
+- PostgreSQL Database
+- Redis
+- Pusher Channels Account
 
-### 2. Web Configuration
-Create `web/.env` based on `web/.env.example` (or just `.env` if generated).
-Ensure `DATABASE_URL`, `REDIS_URL`, and `PUSHER_*` keys are set.
-
-### 3. Run Web
+### 2. Install & Run Web
 ```bash
-cd web
+git clone https://github.com/VishalPainjane/CFRooms.git
+cd CFRooms/web
+
+# Install dependencies
+npm install
+
+# Setup Prisma
 npx prisma generate
 npx prisma db push
+
+# Start the development server
 npm run dev
 ```
 
-### 4. Run Worker (Optional for Local Dev)
-In a separate terminal:
+### 3. Run the Extension
 ```bash
-cd web
-npx tsx workers/submission-worker.ts
-```
-*Note: Requires `REDIS_URL` in environment.*
+cd ../extension
 
-### 5. Extension Configuration
-Create `extension/.env.development`:
-```
-PLASMO_PUBLIC_API_URL=http://localhost:3000
-PLASMO_PUBLIC_PUSHER_KEY=your_key
-PLASMO_PUBLIC_PUSHER_CLUSTER=ap2
-```
+# Install dependencies
+npm install
 
-### 6. Run Extension
-```bash
-cd extension
+# Start development build
 npm run dev
 ```
-Load the extension in Chrome (Developer Mode -> Load Unpacked -> `extension/build/chrome-mv3-dev`).
+Then load the extension in Chrome via `chrome://extensions` → Developer Mode -> Load Unpacked -> select `extension/build/chrome-mv3-dev`.
 
-## Deployment
-Follow the guide in `ps/t2.txt` for Vercel and GitHub Releases.
+## 🤝 Contributing
+
+We love contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) to get started on how to propose bug fixes, submit PRs, and help out!
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
