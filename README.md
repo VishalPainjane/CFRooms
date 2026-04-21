@@ -1,14 +1,14 @@
-# CFRooms 🚀
+# CFRooms
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/VishalPainjane/CFRooms/main/web/public/icon.svg" width="128" />
   <h3>The multiplayer layer for Codeforces.</h3>
-  <p>Practice together, compete in real-time, and level up your competitive programming journey.</p>
+  <p><code>Practice together</code> &bull; <code>Compete in real-time</code> &bull; <code>Level up</code></p>
 </div>
 
 ---
 
-## 🌟 Features
+## <code>[ Features ]</code>
 
 - **Real-Time Collaboration**: Complete Codeforces problems together with your friends.
 - **Live Scoreboard**: Track everyone's progress, time, and submissions live.
@@ -16,15 +16,15 @@
 - **Customizable Sessions**: Filter problems by rating, tags, and topics.
 - **Privacy First**: No passwords required. We don't store your code or chat logs long-term.
 
-## 🏗️ Architecture Architecture
+## <code>[ Architecture ]</code>
 
 CFRooms contains two main components:
 1. **Web App (Next.js)**: Holds the backend API, Pusher WebSocket auth, and the central Redis/BullMQ task queues.
 2. **Browser Extension (Plasmo)**: A lightweight MV3 Chrome extension that injects directly into Codeforces.com pages for seamless integration.
 
-For a deeper dive into the system design, check out our [Architecture Documentation](./docs/ARCHITECTURE.md).
+> For a deeper dive into the system design, check out our [Architecture Documentation](./docs/ARCHITECTURE.md).
 
-## 🚀 Quick Setup
+## <code>[ Quick Setup ]</code>
 
 ### 1. Prerequisites
 - Node.js (v18+)
@@ -58,13 +58,15 @@ npm install
 # Start development build
 npm run dev
 ```
-Then load the extension in Chrome via `chrome://extensions` → Developer Mode -> Load Unpacked -> select `extension/build/chrome-mv3-dev`.
 
-## 🤝 Contributing
+> **Note:** Load the extension in Chrome via `chrome://extensions` &rarr; Developer Mode &rarr; Load Unpacked &rarr; select `extension/build/chrome-mv3-dev`.
 
-We love contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) to get started on how to propose bug fixes, submit PRs, and help out!
+## <code>[ Contributing ]</code>
 
-## 📄 License
+We love contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) to get started on how to propose bug fixes, submit PRs, and help out.
+
+## <code>[ License ]</code>
 
 This project is licensed under the [MIT License](LICENSE).
+
 
